@@ -1,0 +1,24 @@
+const {chromium}=require('C:/Users/admin/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const assert=require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch({headless:true,channel:'msedge'});
+ const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('http://127.0.0.1:8765');await page.locator('[data-view="screenshot"]').click();
+ await page.locator('#shot-file').setInputFiles(process.argv[2]);await page.locator('#shot-recognize').click();
+ await page.waitForFunction(()=>shotState.ocr!==null);
+ for(const [k,v] of Object.entries({likes:'2508',favorites:'1419',comments:'72',followers:'',publish_time:''}))assert.equal(await page.locator(`[data-shot="${k}"]`).inputValue(),v);
+ assert.match(await page.locator('[data-shot="title"]').inputValue(),/杯子/);
+ await page.locator('#shot-confirm').check();
+ await page.locator('#shot-appreciate').click();await page.waitForFunction(()=>shotState.analysis!==null);
+ assert.equal(await page.locator('.appraisal-card').count(),6);
+ assert.equal(await page.evaluate(()=>shotState.analysis.performance.status),'部分维度参考分');
+ console.log('Partial score:',await page.evaluate(()=>shotState.analysis.performance.score));
+ await page.screenshot({path:'test-results/screenshot-module.png',fullPage:true});
+ await page.locator('[data-shot="followers"]').fill('10000');await page.locator('[data-shot="followers"]').press('Tab');
+ assert.equal(await page.locator('#shot-result').innerText(),'');assert.match(await page.locator('[data-shot="followers"]').locator('xpath=preceding-sibling::span[1]').innerText(),/用户已修正/);
+ await page.locator('[data-shot="publish_time"]').fill('2026-05-03');await page.locator('[data-shot="publish_time"]').press('Tab');await page.locator('#shot-confirm').check();await page.locator('#shot-appreciate').click();await page.waitForFunction(()=>shotState.analysis!==null);
+ assert.equal(await page.evaluate(()=>shotState.analysis.performance.status),'完整 ViralScore');assert.deepEqual(errors,[]);
+ assert.equal(await page.evaluate(()=>shotState.analysis.performance.note.followers),10000);
+ const before=await page.evaluate(()=>result.total);await page.locator('#shot-add').click();await page.waitForFunction(()=>shotState.addedId!==null);assert.equal(await page.evaluate(()=>result.total),before+1);
+ await browser.close();console.log('Screenshot upload, actual OCR, partial/full scoring, invalidation: passed');
+})().catch(e=>{console.error(e);process.exit(1)});

@@ -1,0 +1,31 @@
+// UI orchestration checks with simulated model responses; does not claim provider connectivity.
+const {chromium}=require('C:/Users/admin/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const assert=require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch({headless:true,channel:'msedge'});
+ const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const names=['情绪共鸣','具体场景','选择价值','细节证据','自然互动','夸大承诺'];
+ const reply=(route,value,status=200)=>route.fulfill({status,contentType:'application/json',body:JSON.stringify(value)});
+ await page.route('**/api/status',r=>reply(r,{connected:true,model:'模拟模型，仅用于测试'}));
+ await page.route('**/api/intent',r=>reply(r,{topic:'小熊餐盘',category:'创意餐盘',audience:'餐具爱好者',goal:'生成有依据的笔记',constraints:'自然',mode:'LLM 意图识别（模拟）'}));
+ let semanticCalls=0,failSecond=false;
+ await page.route('**/api/semantic',r=>{semanticCalls++;if(failSecond&&semanticCalls===2)return reply(r,{error:'模拟批次失败'},400);const p=r.request().postDataJSON();return reply(r,{notes:p.notes.map(n=>({id:n.id,features:Object.fromEntries(names.map((k,i)=>[k,{present:i!==5,quote:(n.title+'\n'+n.content).slice(0,8),reason:'模拟语义判定'}]))}))})});
+ await page.route('**/api/draft',async r=>{const plans=await page.evaluate(()=>generatorResult.plans);return reply(r,{plans})});
+ const evaluation=()=>({mode:'LLM 内容质量评估（模拟）',score:70,dimensions:{需求匹配:15,标题吸引力:15,事实完整度:10,结构清晰度:10,原创度:10,参考过度相似风险:10},issues:['补充产品事实'],blockers:['仍含待补充事实'],rationale:'模拟评估',fingerprint:'test'});
+ await page.route('**/api/review',r=>reply(r,evaluation()));
+ await page.route('**/api/optimize',r=>{const p=r.request().postDataJSON().plan,c=structuredClone(p);c.body+='\n\n请根据实际需要选择。';return reply(r,{before:evaluation(),after:evaluation(),candidate:c,accepted:true,final:c,changes:['明确选择条件'],reason:'模拟优化结果'})});
+ await page.goto('http://127.0.0.1:8765');await page.getByText('从好内容，发现下一个好选题').waitFor();
+ await page.locator('[data-view="generate"]').click();await page.locator('#product').fill('小熊餐盘');await page.locator('#full-agent').check();await page.locator('#templates').click();
+ await page.getByText('优化前后差异（1 轮）').waitFor();assert.equal(await page.locator('.idea').count(),3);
+ assert.equal(await page.evaluate(()=>generatorResult.semantic.sample_count),24);
+ assert.equal(await page.evaluate(()=>generatorResult.assessment.evaluations.length),3);
+ assert.match(await page.locator('#assessment').innerText(),/最终笔记/);
+ await page.locator('#assessment').screenshot({path:'test-results/assessment.png'});
+ await page.locator('[data-generator-step="3"]').click();await page.locator('[data-draft="1"]').fill('用户重新编辑');assert.equal(await page.evaluate(()=>generatorResult.assessment),null);
+ await page.locator('[data-view="patterns"]').click();semanticCalls=0;await page.locator('#semantic-run').click();await page.getByText('语义分析完成。',{exact:true}).waitFor();
+ assert.equal(await page.evaluate(()=>semanticState.annotations.length),40);
+ assert.match(await page.locator('#semantic-results').innerText(),/Lift/);
+ semanticCalls=0;failSecond=true;await page.locator('#semantic-run').click();await page.getByText('未完成：模拟批次失败；已完成批次保留为部分结果。',{exact:true}).waitFor();
+ assert.equal(await page.evaluate(()=>semanticState.complete),false);assert.equal(await page.evaluate(()=>semanticState.annotations.length),8);
+ assert.deepEqual(errors,[]);await browser.close();console.log('Simulated-LLM UI tests passed: full pipeline, three reviews, optimized final, invalidation, semantic Lift, partial failure.');
+})().catch(e=>{console.error(e);process.exit(1)});
